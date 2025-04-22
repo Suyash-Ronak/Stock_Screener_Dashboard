@@ -4,7 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import ta
 
-st.markdown("<h1 style='text-align: center; color: #2e86de; font-family: Arial, sans-serif;'>📊 Stock Screener Dashboard</h1>", unsafe_allow_html=True)
+st.markdown(
+    "<h1 style='text-align: center; color: #2e86de; font-family: Arial, sans-serif;'>📊 Stock Screener Dashboard</h1>",
+    unsafe_allow_html=True)
 
 sector_stocks = {
     "Oil & Gas": ["RELIANCE.NS", "ONGC.NS", "BPCL.NS", "GAIL.NS"],
@@ -20,7 +22,10 @@ sector_stocks = {
                "HDFCLIFE.NS", "SHREECEM.NS", "COALINDIA.NS", "GRASIM.NS", "UPL.NS", "HDFCAMC.NS", "APOLLOHOSP.NS"]
 }
 
-all_stocks = sorted([stock for sector in sector_stocks.values() for stock in sector])
+# Create display names and API symbols mapping
+api_symbols = sorted([stock for sector in sector_stocks.values() for stock in sector])
+display_names = [symbol.replace(".NS", "") for symbol in api_symbols]
+stock_mapping = dict(zip(display_names, api_symbols))
 
 col1, col2 = st.columns(2)
 
@@ -29,10 +34,23 @@ with col1:
 
 with col2:
     if selected_sector == "All Sectors":
-        selected_stocks = st.multiselect("Or Select Individual Stocks (Max 10)", all_stocks, default=[all_stocks[0]], max_selections=10)
+        selected_display = st.multiselect(
+            "Or Select Individual Stocks (Max 10)",
+            display_names,
+            default=[display_names[0]],
+            max_selections=10
+        )
+        selected_stocks = [stock_mapping[name] for name in selected_display]
     else:
-        st.multiselect("Or Select Individual Stocks (Max 10)", all_stocks, disabled=True)
+        sector_display = [s.replace(".NS", "") for s in sector_stocks[selected_sector]]
+        st.multiselect(
+            "Or Select Individual Stocks (Max 10)",
+            sector_display,
+            default=sector_display[:1],
+            disabled=True
+        )
         selected_stocks = sector_stocks[selected_sector]
+
 
 def format_market_cap(value):
     if value == 'N/A': return value
@@ -42,6 +60,7 @@ def format_market_cap(value):
     elif value >= 1e9:
         return f"\u20b9{value / 1e9:.2f}B"
     return f"\u20b9{value:,.2f}"
+
 
 if st.button("Show Stock Data"):
     if not selected_stocks:
@@ -60,7 +79,6 @@ if st.button("Show Stock Data"):
                 latest_price = df["Close"].iloc[-1]
 
                 df["MA50"] = ta.trend.sma_indicator(df["Close"], window=50)
-                df["MA200"] = ta.trend.sma_indicator(df["Close"], window=200)
                 df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
                 macd = ta.trend.MACD(df["Close"])
                 df["MACD"] = macd.macd()
@@ -78,45 +96,57 @@ if st.button("Show Stock Data"):
                 }
                 all_data[symbol] = {"details": details, "df": df}
 
-            df_table = pd.DataFrame({k: v["details"] for k, v in all_data.items()}).T
+            # Create DataFrame directly from details to avoid duplicate stock column
+            df_table = pd.DataFrame([v["details"] for v in all_data.values()])
 
-            df_table["Price (\u20b9)"] = df_table["Price (\u20b9)"].apply(lambda x: f"\u20b9{x:,.2f}" if x != 'N/A' else 'N/A')
+            # Format columns
+            df_table["Price (\u20b9)"] = df_table["Price (\u20b9)"].apply(
+                lambda x: f"\u20b9{x:,.2f}" if x != 'N/A' else 'N/A')
             df_table["Market Cap"] = df_table["Market Cap"].apply(format_market_cap)
             df_table["P/E"] = df_table["P/E"].apply(lambda x: f"{x:.2f}" if x != 'N/A' else 'N/A')
             df_table["Div Yield"] = df_table["Div Yield"].apply(lambda x: f"{x * 100:.2f}%" if x != 'N/A' else 'N/A')
-            df_table["52W High (\u20b9)"] = df_table["52W High (\u20b9)"].apply(lambda x: f"\u20b9{x:,.2f}" if x != 'N/A' else 'N/A')
-            df_table["52W Low (\u20b9)"] = df_table["52W Low (\u20b9)"].apply(lambda x: f"\u20b9{x:,.2f}" if x != 'N/A' else 'N/A')
+            df_table["52W High (\u20b9)"] = df_table["52W High (\u20b9)"].apply(
+                lambda x: f"\u20b9{x:,.2f}" if x != 'N/A' else 'N/A')
+            df_table["52W Low (\u20b9)"] = df_table["52W Low (\u20b9)"].apply(
+                lambda x: f"\u20b9{x:,.2f}" if x != 'N/A' else 'N/A')
             df_table["EPS"] = df_table["EPS"].apply(lambda x: f"{x:.2f}" if x != 'N/A' else 'N/A')
+            df_table.reset_index(drop=True, inplace=True)
+            df_table.insert(0, 'S.No', range(1, len(df_table) + 1))
 
             st.markdown("""
-    <style>
-        thead tr th {
-            background-color: #2e86de !important;
-            color: white !important;
-            font-weight: bold !important;
-            text-align: center;
-        }
-        tbody td {
-            text-align: center;
-            font-family: 'Segoe UI', sans-serif;
-        }
-    </style>
-""", unsafe_allow_html=True)
-            st.dataframe(df_table, use_container_width=True)
+                <style>
+                    thead tr th {
+                        background-color: #2e86de !important;
+                        color: white !important;
+                        font-weight: bold !important;
+                        text-align: center;
+                    }
+                    tbody td {
+                        text-align: center;
+                        font-family: 'Segoe UI', sans-serif;
+                    }
+                </style>
+            """, unsafe_allow_html=True)
+
+            st.dataframe(df_table, use_container_width=True,hide_index=True)
+
 
             def plot_unified_chart(data, title):
                 fig = go.Figure()
                 for col in data.columns:
-                    fig.add_trace(go.Scatter(x=data.index, y=data[col], mode='lines', name=col, hovertemplate='%{y:.2f}'))
+                    fig.add_trace(
+                        go.Scatter(x=data.index, y=data[col], mode='lines', name=col, hovertemplate='%{y:.2f}'))
                 fig.update_layout(title=title, hovermode='x unified', xaxis_title='Date', yaxis_title='Value')
                 st.plotly_chart(fig, use_container_width=True)
 
+
             if len(selected_stocks) > 1:
-                indicators = {"Close": {}, "MA50": {}, "MA200": {}, "RSI": {}, "MACD": {}, "MACD_signal": {}}
+                indicators = {"Close": {}, "MA50": {}, "RSI": {}, "MACD": {}, "MACD_signal": {}}
                 for symbol in all_data.keys():
                     df = all_data[symbol]["df"]
+                    clean_name = symbol.replace(".NS", "")
                     for ind in indicators:
-                        indicators[ind][symbol.replace(".NS", "")] = df[ind]
+                        indicators[ind][clean_name] = df[ind]
 
                 for ind, data in indicators.items():
                     plot_unified_chart(pd.DataFrame(data), f"{ind} Comparison")
@@ -124,7 +154,7 @@ if st.button("Show Stock Data"):
                 symbol = selected_stocks[0]
                 df = all_data[symbol]["df"]
                 for label, cols in {
-                    "Price with Moving Averages": ["Close", "MA50", "MA200"],
+                    "Price with 50-day MA": ["Close", "MA50"],
                     "RSI (14-day)": ["RSI"],
                     "MACD with Signal Line": ["MACD", "MACD_signal"]
                 }.items():
@@ -134,3 +164,4 @@ if st.button("Show Stock Data"):
             st.error(f"Error fetching data: {e}")
 
 st.write("Note: Prices in INR. 'N/A' indicates unavailable data. Charts show 1-year data with technical indicators.")
+
